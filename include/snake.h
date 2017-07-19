@@ -10,7 +10,7 @@ enum direction {
 class Snake
 {
     public:
-        Snake(int capacity, int x, int y);
+        Snake(char *name, int capacity, int x, int y);
         virtual ~Snake();
         void update();
         void draw(int camX, int camY);
@@ -22,6 +22,7 @@ class Snake
         int getLength();
 
     private:
+        char *name;
         int capacity;
         int len;
         int *tailX;

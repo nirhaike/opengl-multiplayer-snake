@@ -1,7 +1,8 @@
 #include "snake.h"
 
-Snake::Snake(int capacity, int x, int y)
+Snake::Snake(char *name, int capacity, int x, int y)
 {
+    this->name = name;
     this->capacity = capacity;
     this->tailX = new int[capacity+1];
     this->tailY = new int[capacity+1];
@@ -64,8 +65,8 @@ void Snake::moveAll(int dx, int dy) {
         this->tailX[i+1] = this->tailX[i];
         this->tailY[i+1] = this->tailY[i];
     }
-    this->tailX[0] = this->tailX[1] + dx;
-    this->tailY[0] = this->tailY[1] + dy;
+    this->tailX[0] = (this->tailX[1] + dx + WIDTH) % (WIDTH/BLOCK_SIZE);
+    this->tailY[0] = (this->tailY[1] + dy + HEIGHT) % (HEIGHT/BLOCK_SIZE);
 }
 
 void Snake::setDirection(direction dir) {
