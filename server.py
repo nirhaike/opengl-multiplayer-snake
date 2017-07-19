@@ -58,8 +58,6 @@ class GameServer(object):
         self.sock.bind(("0.0.0.0", PORT))
         self.sock.settimeout(0.5)
         self.sock.listen(5)
-        # player index
-        index = 0
         # get players
         self.debug("Server started running..")
         self.wait_room()
@@ -67,7 +65,7 @@ class GameServer(object):
         if len(self.players) < 2:
             # game shutdown message
             self.broadcast_message("\x02")
-            for player in players:
+            for player in self.players:
                 try:
                     player.sock.close()
                 except:
@@ -85,26 +83,29 @@ class GameServer(object):
 
     def wait_room(self):
         """ This function waits for players to join the server """
+        # current player index
+        index = 0
         while self.wait_time > 0 and len(self.players) < self.max_players:
             try:
                 client, addr = self.sock.accept()
+                client.setblocking(1)
                 # get the name from the client
                 name = client.recv(1024)
                 # send the game details and rules
                 client.send(self.get_game_info())
                 # generate a spawn point
                 x, y = self.generate_point()
-                # notify other players
-                self.broadcast_message("\x01" + player.get_data())
-                # tell the new player about the older ones
-                client.send(self.get_players_info())
                 # add the player to the game
                 player = Player(index, name, x, y, client)
                 self.add_player(player)
+                # notify other players
+                self.broadcast_message("\x01" + player.get_data())
+                # send all players' coordinates (last one is the player itself)
+                client.send(self.get_players_info())
                 # print that the player joined the server
-                self.debug(client[0] + " (" + name + ") has joined.")
+                self.debug(addr[0] + " (" + name + ") has joined.")
                 # handle the player's socket output stream
-                handler = threading.Thread(player_handler, args=(self, player))
+                handler = threading.Thread(target=player_handler, args=(self, player))
                 handler.start()
                 # increment the player's index
                 index += 1
@@ -124,8 +125,8 @@ class GameServer(object):
 
     def get_game_info(self):
         data = chr(self.max_players) \
-                + chr(self.wait_time) \
-                + chr(self.snake_size)
+                + chr(int(self.wait_time)) \
+                + chr(int(self.snake_size))
         return data
 
     def get_players_info(self):
@@ -186,10 +187,18 @@ class GameServer(object):
 
     def broadcast_message(self, msg, sender=None):
         self.lock.acquire()
+        to_remove = []
         for player in self.players:
             if player != sender:
-                player.send(msg)
+                try:
+                    player.send(msg)
+                except:
+                    # the player closed the connection
+                    to_remove.append(player)
         self.lock.release()
+        # remove closed connections
+        for player in to_remove:
+            self.remove_player(player)
 
     def move_apple(self, index, generate_spot=True):
         # generate a new spot if requested
@@ -216,8 +225,8 @@ class Player(object):
         self.sock = sock
 
     def move(self, dx, dy):
-        self.x += dx
-        self.y += dy
+        self.x = (self.x + dx) % GRID_WIDTH
+        self.y = (self.y + dy) % GRID_HEIGHT
 
     def get_data(self):
         # create a binary representation for the data
@@ -254,10 +263,12 @@ def player_handler(server, player):
             msg = player.recv()
         except:
             server.remove_player(player)
+            return
         # handle the player's command
         command = ord(msg[0])
         if command == 0x00: # quit game
             server.remove_player(player)
+            return
         elif command == 0x01: # move
             dx = ord(msg[1])
             dy = ord(msg[2])
@@ -276,6 +287,7 @@ def player_handler(server, player):
             server.move_apple(ind)
         elif command == 0x03: # defeated
             server.remove_player(player)
+            return
 
 # validate commandline arguments
 all_integers = True
