@@ -1,18 +1,37 @@
 #ifndef GAME_H
 #define GAME_H
 
-typedef struct {
-    char max_players;
-    char wait_time;
-    char snake_initial_size;
-} game_info_t;
+#include <iostream>
+#include <string.h>
+#include <sstream>
 
-game_info_t *init_game_info(char players, char wait_time, char snake_size) {
-    game_info_t *info = new game_info_t;
-    info->max_players = players;
-    info->wait_time = wait_time;
-    info->snake_initial_size = snake_size;
-    return info;
+using namespace std;
+
+namespace game {
+    typedef struct {
+        char max_players;
+        char wait_time;
+        char snake_initial_size;
+    } game_info_t;
+
+    typedef struct {
+        float r;
+        float g;
+        float b;
+    } color_t;
+
+    enum direction {
+        UP, LEFT, DOWN, RIGHT
+    };
+
+    template <typename T>
+    static string toString(T val) {
+        stringstream stream;
+        stream << val;
+        return stream.str();
+    }
+
+    game_info_t *init_game_info(char players, char wait_time, char snake_size);
 }
 
 #endif // GAME_H

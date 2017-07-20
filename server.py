@@ -166,9 +166,9 @@ class GameServer(object):
         x = 0
         y = 0
         while not found:
-            # generate the point
-            x = random.randint(0, GRID_WIDTH-1)
-            y = random.randint(0, GRID_HEIGHT-1)
+            # generate the point (not in the edges)
+            x = random.randint(1, GRID_WIDTH-2)
+            y = random.randint(1, GRID_HEIGHT-2)
             # make sure it's fine
             found = True
             self.lock.acquire()

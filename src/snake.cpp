@@ -1,24 +1,39 @@
 #include "snake.h"
 
-Snake::Snake(char *name, int capacity, int x, int y)
+Snake::Snake(char *name, int capacity, int x, int y, int len)
 {
     this->name = name;
     this->capacity = capacity;
     this->tailX = new int[capacity+1];
     this->tailY = new int[capacity+1];
-    this->len = 1;
+    this->len = len;
+    // initialize the position
+    for (int i = 1; i < len; i++) {
+        this->tailX[i] = x;
+        this->tailY[i] = y-1;
+    }
     this->tailX[0] = x;
     this->tailY[0] = y;
+    // default direction
     this->dir = DOWN;
+    this->nextDir = DOWN;
+    // initialize the color
+    this->color = new color_t;
+    color->r = 0;
+    color->g = 1;
+    color->b = 0;
 }
 
 Snake::~Snake()
 {
     delete this->tailX;
     delete this->tailY;
+    delete this->color;
+    delete this->name;
 }
 
 void Snake::update() {
+    this->dir = this->nextDir;
     switch (dir) {
     case DOWN:
         moveAll(0, 1);
@@ -42,7 +57,7 @@ void Snake::draw(int camX, int camY) {
     for (i = 0; i < this->len; i++) {
         int x = this->tailX[i] - camX;
         int y = this->tailY[i] - camY;
-        glColor3f(0.0, 1.0, 0.0);
+        glColor3f(color->r, color->g, color->b);
         glRectd(x * BLOCK_SIZE, y * BLOCK_SIZE, (x+1) * BLOCK_SIZE, (y+1) * BLOCK_SIZE);
     }
 }
@@ -70,7 +85,7 @@ void Snake::moveAll(int dx, int dy) {
 }
 
 void Snake::setDirection(direction dir) {
-    this->dir = dir;
+    if ((this->dir + dir) % 2 == 1) this->nextDir = dir;
 }
 
 bool Snake::collides(int start, int len, int *x, int *y) {
@@ -80,6 +95,10 @@ bool Snake::collides(int start, int len, int *x, int *y) {
         }
     }
     return false;
+}
+
+char *Snake::getName() {
+    return this->name;
 }
 
 int *Snake::getX() {
@@ -92,4 +111,14 @@ int *Snake::getY() {
 
 int Snake::getLength() {
     return this->len;
+}
+
+void Snake::setColor(float r, float g, float b) {
+    this->color->r = r;
+    this->color->g = g;
+    this->color->b = b;
+}
+
+color_t *Snake::getColor() {
+    return this->color;
 }
