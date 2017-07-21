@@ -5,14 +5,16 @@
 #include <game.h>
 
 #define MAX_ENEMIES 4
-#define SNAKE_MAX_LEN 512
+#define SNAKE_MAX_LEN 255
 #define NUM_OF_PLAYERS_INDEX 21
 #define BUFF_SIZE 256
+#define MAX_SPARKLES ((MAX_ENEMIES+1)*SNAKE_MAX_LEN)
 
-#define OPCODE_QUIT_GAME 0x00
-#define OPCODE_MOVE      0x01
-#define OPCODE_EAT_APPLE 0x02
-#define OPCODE_DEFEATED  0x03
+#define OPCODE_QUIT_GAME   0x00
+#define OPCODE_MOVE        0x01
+#define OPCODE_EAT_APPLE   0x02
+#define OPCODE_DEFEATED    0x03
+#define OPCODE_EAT_SPARKLE 0x04
 
 using namespace std;
 using namespace game;
@@ -28,6 +30,9 @@ int numEnemies;
 
 Apple **apples;
 int numApples;
+
+Apple **sparkles;
+int currSparkles = 0;
 
 color_t COLORS_ENEMY[] = {{0.95f, 0.45f, 0.95f}, {0.45f, 0.95f, 0.95f}, {0.95f, 0.45f, 0.45f}, {0.45f, 0.45f, 0.95f}};
 
@@ -47,7 +52,9 @@ void drawApples();
 void addEnemy(char *name, int nameSize, int x, int y);
 int addPlayer(char *data, bool isEnemy);
 Snake *getSnakeByIndex(char index);
+Apple *getSparkleByInfo(char snake, unsigned char ind);
 bool removeSnakeByIndex(char index);
+void removeSparkleByInfo(char snake, unsigned char ind);
 
 int main() {
     // get the player's name (TODO make the size between 3-9)
@@ -85,6 +92,7 @@ int main() {
     // create instances for the apples
     numApples = game_info->amount_apples;
     apples = new Apple*[numApples];
+    sparkles = new Apple*[MAX_SPARKLES];
     for (int i = 0; i < numApples; i++) {
         apples[i] = new Apple((i * 5 + i/2) % WIDTH, (i * 7 - i/2) % HEIGHT);
     }
@@ -109,7 +117,9 @@ int main() {
         addPlayer(buff+index, false);
     }
     // add timeout for the socket receiving function
-    net->setTimeout(100);
+    //net->setTimeout(1);
+    // set the receive call to be non-blocking
+    net->setNonBlocking();
     // start rendering the game
     render();
     // close
@@ -125,11 +135,17 @@ int main() {
 }
 
 int handleByOpcode(char opcode, char *data) {
+    char x;
+    char y;
     char dx;
     char dy;
     int appleId;
+    char snakeId;
+    unsigned char sparkleIndex;
     int used;
+    int side;
     Snake *s;
+    Apple *sparkle;
 
     switch (opcode) {
     // player disconnection
@@ -160,24 +176,41 @@ int handleByOpcode(char opcode, char *data) {
         s = getSnakeByIndex(data[0]);
         dx = data[1];
         dy = data[2];
+        side = data[3];
+        s->setDirection((direction)side);
         s->moveAll(dx, dy);
-        return 4;
+        return 5;
     // apple was eaten by an enemy
     case 0x11:
         s = getSnakeByIndex(data[0]);
         appleId = data[1];
+        dx = (apples[(int)appleId]->getX() - s->getX()[0]) % (WIDTH/BLOCK_SIZE);
+        dy = (apples[(int)appleId]->getY() - s->getY()[0]) % (HEIGHT/BLOCK_SIZE);
         apples[(int)appleId]->movePosition(-1, -1);
         s->enlarge();
+        s->moveAll(dx, dy);
         return 3;
     // apple was moved
     case 0x12:
         cout << "A";
         appleId = data[0];
-        char x = data[1];
-        char y = data[2];
+        x = data[1];
+        y = data[2];
         cout << "B";
         apples[appleId]->movePosition(x, y);
         cout << "C";
+        return 4;
+    // sparkle was eaten
+    case 0x13:
+        s = getSnakeByIndex(data[0]);
+        snakeId = data[1];
+        sparkleIndex = data[2];
+        sparkle = getSparkleByInfo(snakeId, sparkleIndex);
+        dx = (sparkle->getX() - s->getX()[0]) % (WIDTH/BLOCK_SIZE);
+        dy = (sparkle->getY() - s->getY()[0]) % (HEIGHT/BLOCK_SIZE);
+        removeSparkleByInfo(snakeId, sparkleIndex);
+        s->enlarge();
+        s->moveAll(dx, dy);
         return 4;
     }
     return -1;
@@ -225,13 +258,23 @@ void updateGame(float delta) {
                 if (apples[i]->canEat(snake->getX()[0], snake->getY()[0])) {
                     apples[i]->movePosition(-1, -1);
                     enlarge = true;
+                    // update the server
+                    char msg[] = {OPCODE_EAT_APPLE, (char)i, 0};
+                    net->send(msg, 3);
                 }
-                // update the server
-                char msg[] = {OPCODE_EAT_APPLE, (char)i, 0};
-                net->send(msg, 3);
+            }
+            for (int i = 0; i < currSparkles; i++) {
+                if (sparkles[i]->canEat(snake->getX()[0], snake->getY()[0])) {
+                    char sparkleSnake = (char) sparkles[i]->getSparkleSnake();
+                    unsigned char sparkleIndex = (unsigned char)sparkles[i]->getSparkleIndex();
+                    removeSparkleByInfo(sparkleSnake, sparkleIndex);
+                    enlarge = true;
+                    // update the server
+                    char msg[] = {OPCODE_EAT_SPARKLE, sparkleSnake, (char)sparkleIndex, 0};
+                    net->send(msg, 4);
+                }
             }
             if (enlarge) {
-                    cout << "enlarge" << endl;
                 snake->enlarge();
                 enlarge = false;
             } else {
@@ -242,16 +285,19 @@ void updateGame(float delta) {
                 if (snake->getDirection() == DOWN) {dy = 1;}
                 if (snake->getDirection() == LEFT) {dx = -1;}
                 if (snake->getDirection() == RIGHT) {dx = 1;}
-                char msg[] = {OPCODE_MOVE, (char)dx, (char)dy, 0};
-                net->send(msg, 4);
+                char msg[] = {OPCODE_MOVE, (char)dx, (char)dy, (char)snake->getDirection(), 0};
+                net->send(msg, 5);
                 // update the user interface
-                cout << "update" << endl;
                 snake->update();
             }
             time = 0;
         }
         // collision check
-        if (snake->collides(1, snake->getLength(), snake->getX(), snake->getY())) {
+        bool collision = snake->collides(1, snake->getLength(), snake->getX(), snake->getY());
+        for (int i = 0; i < numEnemies; i++) {
+            collision = collision || snake->collides(0, enemies[i]->getLength(), enemies[i]->getX(), enemies[i]->getY());
+        }
+        if (collision) {
             // update the server
             char msg[] = {OPCODE_DEFEATED, 0};
             net->send(msg, 2);
@@ -289,15 +335,12 @@ void draw() {
 }
 
 void drawGame() {
-    cout << "Drawing game!" << endl;
     if (!gameOver) {
         drawApples();
         snake->draw(0, 0);
-        cout << "Drawing enemies!" << endl;
         for (int i = 0; i < numEnemies; i++) {
             enemies[i]->draw(0, 0);
         }
-        cout << "Done!" << endl;
         drawGrid();
     } else {
         drawApples();
@@ -313,6 +356,9 @@ void drawGame() {
 void drawApples() {
     for (int i = 0; i < numApples; i++) {
         apples[i]->draw(0, 0);
+    }
+    for (int i = 0; i < currSparkles; i++) {
+        sparkles[i]->draw(0, 0);
     }
 }
 
@@ -349,9 +395,9 @@ void input(GLFWwindow* window, int key, int scancode, int action, int mods) {
     case GLFW_KEY_RIGHT:
         snake->setDirection(RIGHT);
         break;
-    case GLFW_KEY_A:
-        enlarge = true;
-        break;
+    //case GLFW_KEY_A:
+    //    enlarge = true;
+    //    break;
     }
 }
 
@@ -394,6 +440,40 @@ Snake *getSnakeByIndex(char index) {
     return NULL;
 }
 
+void makeSparkles(Snake *s) {
+    for (int i = 0; i < s->getLength(); i++) {
+        int x = s->getX()[i];
+        int y = s->getY()[i];
+        Apple *a = new Apple(x, y);
+        a->toSparkle(s->getIndex(), i);
+        sparkles[currSparkles++] = a;
+    }
+}
+
+Apple *getSparkleByInfo(char snake, unsigned char ind) {
+    int i;
+    for (i = 0; i < currSparkles; i++) {
+        if (sparkles[i]->getSparkleSnake() == snake && sparkles[i]->getSparkleIndex() == ind) {
+            return sparkles[i];
+        }
+    }
+    return NULL;
+}
+
+void removeSparkleByInfo(char snake, unsigned char ind) {
+    int i;
+    for (i = 0; i < currSparkles; i++) {
+        if (sparkles[i]->getSparkleSnake() == snake && sparkles[i]->getSparkleIndex() == ind) {
+            break;
+        }
+    }
+    for (; i < currSparkles-1; i++) {
+        sparkles[i] = sparkles[i+1];
+    }
+    sparkles[i] = NULL;
+    currSparkles--;
+}
+
 /** returns whether the operation has been completed */
 bool removeSnakeByIndex(char index) {
     if (snake->getIndex() == index) {
@@ -402,6 +482,10 @@ bool removeSnakeByIndex(char index) {
     int i;
     for (i = 0; i < numEnemies; i++) {
         if (enemies[i]->getIndex() == index) {
+            if (gameStarted && !gameOver) {
+                // turn the snake into sparkles
+                makeSparkles(enemies[i]);
+            }
             break;
         }
     }

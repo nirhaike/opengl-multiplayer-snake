@@ -35,8 +35,8 @@ import traceback
 
 PORT = 1234
 
-GRID_WIDTH = 80
-GRID_HEIGHT = 60
+GRID_WIDTH = 64
+GRID_HEIGHT = 50
 
 class GameServer(object):
     """ This class represents the game server. """
@@ -293,15 +293,17 @@ def player_handler(server, player):
             server.remove_player(player)
             return
         elif command == 0x01: # move
-            dx = ord(msg[1])
-            dy = ord(msg[2])
+            dx = ((ord(msg[1])+1)%256)-1
+            dy = ((ord(msg[2])+1)%256)-1
+            side = ord(msg[3])
             # TODO add direction here!
             # validation check
-            if dx in [0, 1] and dy in [0, 1]:
+            if dx in [0, 1, -1] and dy in [0, 1, -1]:
                 player.move(dx, dy)
-                broadcast = "\x10" + chr(player.get_index()) + msg[1] + msg[2]
+                broadcast = "\x10" + chr(player.get_index()) + msg[1] + msg[2] + msg[3]
                 server.broadcast_message(broadcast, sender=player)
         elif command == 0x02: # apple eaten
+            print "APPLE!"
             ind = ord(msg[1])
             # make other players know that the apple was eaten
             # and the snake was enlarged
@@ -312,6 +314,9 @@ def player_handler(server, player):
         elif command == 0x03: # defeated
             server.remove_player(player, keep_watching=True)
             return
+        elif command == 0x04: # eating sparkle
+            broadcast = "\x13" + chr(player.get_index()) + msg[1] + msg[2]
+            server.broadcast_message(broadcast, sender=player)
 
 # validate commandline arguments
 all_integers = True
@@ -322,6 +327,7 @@ for i in range(1, len(sys.argv)):
         all_integers = False
 if len(sys.argv) < 5 or not all_integers:
     print "Usage: server.py <num-of-players> <snake-start-size> <max-wait-time> <amount_apples>"
+    sys.exit(-1)
 
 # get the commandline arguments
 max_players = min(5, int(sys.argv[1]))
