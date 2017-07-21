@@ -13,6 +13,7 @@ class Snake
         virtual ~Snake();
         void update();
         void draw(int camX, int camY);
+        direction getDirection();
         void setDirection(direction dir);
         void enlarge();
         bool collides(int start, int len, int *x, int *y);
@@ -21,10 +22,16 @@ class Snake
         int *getY();
         int getLength();
         void setColor(float r, float g, float b);
+        void setIndex(char index);
+        char getIndex();
         color_t *getColor();
+        void faint();
+        bool isFainted();
+        void moveAll(int dx, int dy);
 
     private:
         char *name;
+        char index;
         int capacity;
         int len;
         int *tailX;
@@ -32,8 +39,7 @@ class Snake
         direction dir;
         direction nextDir;
         color_t *color;
-
-        void moveAll(int dx, int dy);
+        bool fainted;
 };
 
 #endif // SNAKE_H

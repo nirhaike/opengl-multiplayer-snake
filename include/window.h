@@ -19,6 +19,7 @@ using namespace std;
 void update(float delta);
 void draw();
 void input(GLFWwindow* window, int key, int scancode, int action, int mods);
+void quit();
 
 int init(const char *title);
 void render();

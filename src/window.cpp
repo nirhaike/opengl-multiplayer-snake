@@ -4,7 +4,9 @@ static GLFWwindow *window;
 
 static double lastTime = 0.0;
 static double currentTime = 0.0;
-static float delta = 1.0f;
+static float delta = 0.1f;
+
+static bool running = true;
 
 int init(const char *title) {
     if (!glfwInit()) {
@@ -34,7 +36,7 @@ int init(const char *title) {
 }
 
 void render() {
-    while (!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window) && running) {
         lastTime = glfwGetTime();
         // swap front & back buffers
         glfwSwapBuffers(window);
@@ -49,6 +51,10 @@ void render() {
         currentTime = glfwGetTime();
         delta = (float)(currentTime - lastTime);
     }
+}
+
+void quit() {
+    running = false;
 }
 
 void destroy() {

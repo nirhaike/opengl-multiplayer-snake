@@ -52,6 +52,7 @@ class GameServer(object):
         # server handling
         self.lock = threading.Lock()
         self.sock = None
+        self.running = True
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,7 +76,7 @@ class GameServer(object):
         # add the apples
         for i in range(self.amount_apples):
             self.apples.append(self.generate_point())
-            move_apple(i, generate_spot=False)
+            self.move_apple(i, generate_spot=False)
         # start the game
         self.broadcast_message("\x03")
         self.debug("Game started!")
@@ -85,7 +86,7 @@ class GameServer(object):
         """ This function waits for players to join the server """
         # current player index
         index = 0
-        while self.wait_time > 0 and len(self.players) < self.max_players:
+        while self.wait_time > 0: # and len(self.players) < self.max_players:
             try:
                 client, addr = self.sock.accept()
                 client.setblocking(1)
@@ -97,10 +98,10 @@ class GameServer(object):
                 x, y = self.generate_point()
                 # add the player to the game
                 player = Player(index, name, x, y, client)
-                self.add_player(player)
                 # notify other players
                 self.broadcast_message("\x01" + player.get_data())
                 # send all players' coordinates (last one is the player itself)
+                self.add_player(player)
                 client.send(self.get_players_info())
                 # print that the player joined the server
                 self.debug(addr[0] + " (" + name + ") has joined.")
@@ -113,6 +114,7 @@ class GameServer(object):
                 pass
             except:
                 traceback.print_exc()
+                self.running = False
             self.wait_time -= 0.5
 
     def debug(self, message):
@@ -126,7 +128,8 @@ class GameServer(object):
     def get_game_info(self):
         data = chr(self.max_players) \
                 + chr(int(self.wait_time)) \
-                + chr(int(self.snake_size))
+                + chr(int(self.snake_size)) \
+                + chr(int(self.amount_apples))
         return data
 
     def get_players_info(self):
@@ -143,18 +146,29 @@ class GameServer(object):
         self.players.append(player)
         self.lock.release()
 
-    def remove_player(self, player):
+    def remove_player(self, player, keep_watching=False):
         """
             This function removes a player from the game.
         """
-        # try to close the player's socket
-        player.sock.close()
+        if not keep_watching:
+            # try to close the player's socket
+            player.sock.close()
         # remove the player
-        self.lock.acquire()
-        self.players.remove(player)
-        self.lock.release()
+        try:
+            self.lock.acquire()
+            self.players.remove(player)
+            self.lock.release()
+        except:
+            return
         # tell other players that the player has left
         server.broadcast_message("\x00" + chr(player.get_index()))
+        # add the player if he keeps watching the game
+        if keep_watching:
+            # add the player
+            self.lock.acquire()
+            self.players.append(player)
+            self.lock.release()
+
 
     def generate_point(self, min_distance=5):
         """
@@ -203,7 +217,7 @@ class GameServer(object):
     def move_apple(self, index, generate_spot=True):
         # generate a new spot if requested
         if generate_spot:
-            self.apples[index] = generate_point()
+            self.apples[index] = self.generate_point()
         # send the coordinates
         x = self.apples[index][0]
         y = self.apples[index][1]
@@ -211,6 +225,9 @@ class GameServer(object):
 
     def close(self):
         self.sock.close()
+
+    def is_running(self):
+        return self.running
 
 
 class Player(object):
@@ -223,6 +240,7 @@ class Player(object):
         self.x = x
         self.y = y
         self.sock = sock
+        self.sock.settimeout(0.5)
 
     def move(self, dx, dy):
         self.x = (self.x + dx) % GRID_WIDTH
@@ -258,20 +276,26 @@ class Player(object):
 
 def player_handler(server, player):
     running = True
-    while running:
+    while running and server.is_running():
         try:
             msg = player.recv()
+        except socket.timeout:
+            continue
         except:
             server.remove_player(player)
             return
-        # handle the player's command
-        command = ord(msg[0])
+        try:
+            # handle the player's command
+            command = ord(msg[0])
+        except:
+            continue
         if command == 0x00: # quit game
             server.remove_player(player)
             return
         elif command == 0x01: # move
             dx = ord(msg[1])
             dy = ord(msg[2])
+            # TODO add direction here!
             # validation check
             if dx in [0, 1] and dy in [0, 1]:
                 player.move(dx, dy)
@@ -286,7 +310,7 @@ def player_handler(server, player):
             # move the apple
             server.move_apple(ind)
         elif command == 0x03: # defeated
-            server.remove_player(player)
+            server.remove_player(player, keep_watching=True)
             return
 
 # validate commandline arguments
@@ -300,7 +324,7 @@ if len(sys.argv) < 5 or not all_integers:
     print "Usage: server.py <num-of-players> <snake-start-size> <max-wait-time> <amount_apples>"
 
 # get the commandline arguments
-max_players = int(sys.argv[1])
+max_players = min(5, int(sys.argv[1]))
 snake_size = int(sys.argv[2])
 wait_time = int(sys.argv[3])
 amount_apples = int(sys.argv[4])

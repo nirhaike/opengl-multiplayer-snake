@@ -9,9 +9,10 @@ using namespace std;
 
 namespace game {
     typedef struct {
-        char max_players;
-        char wait_time;
-        char snake_initial_size;
+        int  max_players;
+        unsigned short wait_time;
+        int snake_initial_size;
+        int amount_apples;
     } game_info_t;
 
     typedef struct {
@@ -31,7 +32,9 @@ namespace game {
         return stream.str();
     }
 
-    game_info_t *init_game_info(char players, char wait_time, char snake_size);
+    char *copyPointer(char *arr, int len);
+
+    game_info_t *init_game_info(char players, char wait_time, char snake_size, char amount_apples);
 }
 
 #endif // GAME_H

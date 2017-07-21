@@ -55,6 +55,11 @@ void Net::setNonBlocking() {
     }
 }
 
+void Net::setTimeout(int time) {
+    DWORD timeout = time;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+}
+
 void Net::close() {
     closesocket(sock);
 }

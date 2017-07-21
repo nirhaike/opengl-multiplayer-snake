@@ -30,6 +30,8 @@ public:
     void close();
     // set whether the receive is blocking or not
     void setNonBlocking();
+    // set the timeout of the receiving function
+    void setTimeout(int time);
 
 
 };

@@ -19,9 +19,11 @@ Snake::Snake(char *name, int capacity, int x, int y, int len)
     this->nextDir = DOWN;
     // initialize the color
     this->color = new color_t;
-    color->r = 0;
-    color->g = 1;
-    color->b = 0;
+    color->r = 0.45f;
+    color->g = 0.95f;
+    color->b = 0.45f;
+    // the snake is alive by default
+    this->fainted = false;
 }
 
 Snake::~Snake()
@@ -101,6 +103,10 @@ char *Snake::getName() {
     return this->name;
 }
 
+direction Snake::getDirection() {
+    return this->dir;
+}
+
 int *Snake::getX() {
     return this->tailX;
 }
@@ -121,4 +127,20 @@ void Snake::setColor(float r, float g, float b) {
 
 color_t *Snake::getColor() {
     return this->color;
+}
+
+void Snake::setIndex(char index) {
+    this->index = index;
+}
+
+char Snake::getIndex() {
+    return this->index;
+}
+
+void Snake::faint() {
+    this->fainted = true;
+}
+
+bool Snake::isFainted() {
+    return this->fainted;
 }

@@ -4,14 +4,21 @@
 #include <apple.h>
 #include <game.h>
 
-#define MAX_ENEMIES 5
+#define MAX_ENEMIES 4
 #define SNAKE_MAX_LEN 512
 #define NUM_OF_PLAYERS_INDEX 21
+#define BUFF_SIZE 256
+
+#define OPCODE_QUIT_GAME 0x00
+#define OPCODE_MOVE      0x01
+#define OPCODE_EAT_APPLE 0x02
+#define OPCODE_DEFEATED  0x03
 
 using namespace std;
 using namespace game;
 
 Net *net;
+char *buff = new char[BUFF_SIZE];
 
 game_info_t *game_info;
 Snake *snake;
@@ -22,7 +29,7 @@ int numEnemies;
 Apple **apples;
 int numApples;
 
-color_t COLORS_ENEMY[] = {{0.1f, 0.1f, 0.1f}};
+color_t COLORS_ENEMY[] = {{0.95f, 0.45f, 0.95f}, {0.45f, 0.95f, 0.95f}, {0.95f, 0.45f, 0.45f}, {0.45f, 0.45f, 0.95f}};
 
 char numPlayersString[] = "- Number of players: 1";
 
@@ -34,18 +41,20 @@ bool gameOver = false;
 
 void drawGrid();
 void drawGame();
+void updateWaitRoom(float delta);
 void updateGame(float delta);
 void drawApples();
 void addEnemy(char *name, int nameSize, int x, int y);
+int addPlayer(char *data, bool isEnemy);
+Snake *getSnakeByIndex(char index);
+bool removeSnakeByIndex(char index);
 
 int main() {
-    /*
-    // get the player's name
+    // get the player's name (TODO make the size between 3-9)
     char *name = new char[50];
     cin >> name;
     cout << strlen(name) << endl;
     // connect to the server
-    char *buff = new char[256];
     net = new Net("127.0.0.1", 1234);
     if (net->connect() != 0) {
         cout << "Can't connect!" << endl;
@@ -60,24 +69,21 @@ int main() {
         return 0;
     }
     // receive game info
-    int len = net->recv(buff, 256);
+    int len = net->recv(buff, BUFF_SIZE);
     if (len < 3) {
         cout << "Invalid handshake message: " << len << endl;
         delete net;
         return 0;
     }
-    game_info = init_game_info(buff[0], buff[1], buff[2]);
-    // set the socket connection to be non-blocking
-    net->setNonBlocking();
-    */
+    game_info = init_game_info(buff[0], buff[1], buff[2], buff[3]);
     // open the game's screen
     if (!init("Hello World")) {
         return -1;
     }
     //tex = loadImage("img.png");
-    snake = new Snake("Nir", SNAKE_MAX_LEN, 10, 10, 3); //name
+    //snake = new Snake("Nir", SNAKE_MAX_LEN, 10, 10, 3); //name
     // create instances for the apples
-    numApples = 5;
+    numApples = game_info->amount_apples;
     apples = new Apple*[numApples];
     for (int i = 0; i < numApples; i++) {
         apples[i] = new Apple((i * 5 + i/2) % WIDTH, (i * 7 - i/2) % HEIGHT);
@@ -85,30 +91,127 @@ int main() {
     // create the enemies list
     enemies = new Snake*[MAX_ENEMIES];
     numEnemies = 0;
-    addEnemy("Thomas", 6, 51, 23);
     // start the waiting room
     gameStarted = false;
+    // add players
+    len = net->recv(buff, BUFF_SIZE);
+    if (len < 2) {
+        cout << "Invalid message size: " << len << endl;
+        quit();
+    } else {
+        int index = 1;
+        // add enemies
+        for (int i = 0; i < buff[0]-1; i++) {
+            addPlayer(buff+index, true);
+            index += 4 + buff[index+1];
+        }
+        // add our player
+        addPlayer(buff+index, false);
+    }
+    // add timeout for the socket receiving function
+    net->setTimeout(100);
+    // start rendering the game
     render();
     // close
     destroy();
-    /*
     net->close();
     delete net;
     delete buff;
-    */
     delete snake;
     delete apples;
     delete game_info;
     //unloadImage(tex);
-
     return 0;
+}
+
+int handleByOpcode(char opcode, char *data) {
+    char dx;
+    char dy;
+    int appleId;
+    int used;
+    Snake *s;
+
+    switch (opcode) {
+    // player disconnection
+    case 0:
+        // try to remove an enemy or quit if the index is ours
+        if (!removeSnakeByIndex(data[0]) && snake->getIndex()==data[0]) {
+            cout << "QUIT1" << endl;
+            quit();
+        }
+        return 2;
+    // player connection
+    case 0x01:
+        used = addPlayer(data, true);
+        return used+1;
+    // game server shutdown
+    case 0x02:
+        cout << "QUIT2" << endl;
+        quit();
+        return 1;
+    // start game
+    case 0x03:
+        gameStarted = true;
+        cout << "Game started!" << endl;
+        time = 0;
+        return 1;
+    // movement
+    case 0x10:
+        s = getSnakeByIndex(data[0]);
+        dx = data[1];
+        dy = data[2];
+        s->moveAll(dx, dy);
+        return 4;
+    // apple was eaten by an enemy
+    case 0x11:
+        s = getSnakeByIndex(data[0]);
+        appleId = data[1];
+        apples[(int)appleId]->movePosition(-1, -1);
+        s->enlarge();
+        return 3;
+    // apple was moved
+    case 0x12:
+        cout << "A";
+        appleId = data[0];
+        char x = data[1];
+        char y = data[2];
+        cout << "B";
+        apples[appleId]->movePosition(x, y);
+        cout << "C";
+        return 4;
+    }
+    return -1;
 }
 
 void update(float delta) {
     if (gameStarted) {
+        cout << "Updating game!" << endl;
         updateGame(delta);
     } else {
+        updateWaitRoom(delta);
+    }
+}
 
+void recv() {
+    int len = net->recv(buff, BUFF_SIZE);
+    int used;
+    char *buffPtr = buff;
+    while (len > 0 && used != -1) {
+        cout << "Got opcode " << (int)buffPtr[0] << "  " << len << endl;
+        used = handleByOpcode(buffPtr[0], buffPtr+1);
+        buffPtr += used;
+        len -= used;
+    }
+}
+
+void updateWaitRoom(float delta) {
+    time += delta;
+    if (time > game_info->wait_time && numEnemies == 0) {
+        cout << "QUIT3" << endl;
+        quit();
+    } else {
+        recv();
+        cout << "Done!" << endl;
     }
 }
 
@@ -123,12 +226,25 @@ void updateGame(float delta) {
                     apples[i]->movePosition(-1, -1);
                     enlarge = true;
                 }
+                // update the server
+                char msg[] = {OPCODE_EAT_APPLE, (char)i, 0};
+                net->send(msg, 3);
             }
             if (enlarge) {
                     cout << "enlarge" << endl;
                 snake->enlarge();
                 enlarge = false;
             } else {
+                // update the server
+                int dx = 0;
+                int dy = 0;
+                if (snake->getDirection() == UP) {dy = -1;}
+                if (snake->getDirection() == DOWN) {dy = 1;}
+                if (snake->getDirection() == LEFT) {dx = -1;}
+                if (snake->getDirection() == RIGHT) {dx = 1;}
+                char msg[] = {OPCODE_MOVE, (char)dx, (char)dy, 0};
+                net->send(msg, 4);
+                // update the user interface
                 cout << "update" << endl;
                 snake->update();
             }
@@ -136,8 +252,14 @@ void updateGame(float delta) {
         }
         // collision check
         if (snake->collides(1, snake->getLength(), snake->getX(), snake->getY())) {
+            // update the server
+            char msg[] = {OPCODE_DEFEATED, 0};
+            net->send(msg, 2);
+            // update the user interface
             gameOver = true;
         }
+        // receive data from the server
+        recv();
     }
 }
 
@@ -167,12 +289,21 @@ void draw() {
 }
 
 void drawGame() {
+    cout << "Drawing game!" << endl;
     if (!gameOver) {
         drawApples();
         snake->draw(0, 0);
+        cout << "Drawing enemies!" << endl;
+        for (int i = 0; i < numEnemies; i++) {
+            enemies[i]->draw(0, 0);
+        }
+        cout << "Done!" << endl;
         drawGrid();
     } else {
         drawApples();
+        for (int i = 0; i < numEnemies; i++) {
+            enemies[i]->draw(0, 0);
+        }
         drawGrid();
         glColor3f(1.0, 1.0, 1.0);
         drawString("Game Over!", 0, 30);
@@ -224,15 +355,60 @@ void input(GLFWwindow* window, int key, int scancode, int action, int mods) {
     }
 }
 
-void addEnemy(char *name, int nameSize, int x, int y) {
+void addEnemy(char *name, int nameSize, int x, int y, char index) {
     if (numEnemies >= MAX_ENEMIES)
         return;
-    char *c = new char[nameSize+1];
-    for (int i = 0; i < nameSize; i++) {
-        c[i] = name[i];
-    }
-    enemies[numEnemies] = new Snake(c, SNAKE_MAX_LEN, x, y, 13);
-    enemies[numEnemies]->setColor(1, 0, 0);
+    char *c = copyPointer(name, nameSize);
+    enemies[numEnemies] = new Snake(c, SNAKE_MAX_LEN, x, y, game_info->snake_initial_size);
+    color_t col = COLORS_ENEMY[numEnemies];
+    enemies[numEnemies]->setColor(col.r, col.g, col.b);
+    enemies[numEnemies]->setIndex(index);
     numEnemies++;
     numPlayersString[NUM_OF_PLAYERS_INDEX]++;
+}
+
+int addPlayer(char *data, bool isEnemy) {
+    char index = data[0];
+    int nameLen = data[1];
+    char *name = copyPointer(&data[2], nameLen);
+    int x = data[2+nameLen];
+    int y = data[3+nameLen];
+    if (isEnemy) {
+        addEnemy(name, nameLen, x, y, index);
+    } else {
+        snake = new Snake(name, SNAKE_MAX_LEN, x, y, game_info->snake_initial_size);
+        snake->setIndex(index);
+    }
+    return 4+nameLen;
+}
+
+Snake *getSnakeByIndex(char index) {
+    if (snake->getIndex() == index) {
+        return snake;
+    }
+    for (int i = 0; i < numEnemies; i++) {
+        if (enemies[i]->getIndex() == index) {
+            return enemies[i];
+        }
+    }
+    return NULL;
+}
+
+/** returns whether the operation has been completed */
+bool removeSnakeByIndex(char index) {
+    if (snake->getIndex() == index) {
+        return false;
+    }
+    int i;
+    for (i = 0; i < numEnemies; i++) {
+        if (enemies[i]->getIndex() == index) {
+            break;
+        }
+    }
+    for (; i < numEnemies-1; i++) {
+        enemies[i] = enemies[i+1];
+    }
+    enemies[numEnemies-1] = NULL;
+    numEnemies--;
+    return true;
 }
