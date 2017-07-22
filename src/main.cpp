@@ -1,9 +1,20 @@
+/**
+    Multiplayer Snake Game
+
+    @author Nir Haike
+    @version 1.0 22/07/2017
+*/
 #include <window.h>
 #include <net.h>
 #include <snake.h>
 #include <apple.h>
 #include <game.h>
 
+using namespace std;
+using namespace game;
+
+#define TITLE "Multiplayer Snake"
+#define HOST "127.0.0.1"
 #define MAX_ENEMIES 4
 #define SNAKE_MAX_LEN 255
 #define NUM_OF_PLAYERS_INDEX 21
@@ -15,9 +26,6 @@
 #define OPCODE_EAT_APPLE   0x02
 #define OPCODE_DEFEATED    0x03
 #define OPCODE_EAT_SPARKLE 0x04
-
-using namespace std;
-using namespace game;
 
 Net *net;
 char *buff = new char[BUFF_SIZE];
@@ -34,7 +42,15 @@ int numApples;
 Apple **sparkles;
 int currSparkles = 0;
 
-color_t COLORS_ENEMY[] = {{0.95f, 0.45f, 0.95f}, {0.45f, 0.95f, 0.95f}, {0.95f, 0.45f, 0.45f}, {0.45f, 0.45f, 0.95f}};
+color_t COLORS_ENEMY[] = {
+    // purple
+    {0.95f, 0.45f, 0.95f},
+    // cyan
+    {0.45f, 0.95f, 0.95f},
+    // red
+    {0.95f, 0.45f, 0.45f},
+    // blue
+    {0.45f, 0.45f, 0.95f}};
 
 char numPlayersString[] = "- Number of players: 1";
 
@@ -46,6 +62,7 @@ bool gameOver = false;
 
 void drawGrid();
 void drawGame();
+void drawWaitingRoom();
 void updateWaitRoom(float delta);
 void updateGame(float delta);
 void drawApples();
@@ -62,7 +79,7 @@ int main() {
     cin >> name;
     cout << strlen(name) << endl;
     // connect to the server
-    net = new Net("127.0.0.1", 1234);
+    net = new Net(HOST, 1234);
     if (net->connect() != 0) {
         cout << "Can't connect!" << endl;
         delete net;
@@ -84,7 +101,7 @@ int main() {
     }
     game_info = init_game_info(buff[0], buff[1], buff[2], buff[3]);
     // open the game's screen
-    if (!init("Hello World")) {
+    if (!init(TITLE)) {
         return -1;
     }
     //tex = loadImage("img.png");
@@ -129,11 +146,14 @@ int main() {
     delete buff;
     delete snake;
     delete apples;
+    delete sparkles;
     delete game_info;
     //unloadImage(tex);
     return 0;
 }
 
+/// <summary>handles a command that was sent by the server</summary>
+/// <returns>the amount of read bytes (the leftover bytes specifies the next commands)</returns>
 int handleByOpcode(char opcode, char *data) {
     char x;
     char y;
@@ -216,6 +236,8 @@ int handleByOpcode(char opcode, char *data) {
     return -1;
 }
 
+/// <summary>updates the game state. called on every frame</summary>
+/// <param name="delta">the time passed from the last frame (in seconds)</param>
 void update(float delta) {
     if (gameStarted) {
         cout << "Updating game!" << endl;
@@ -225,6 +247,7 @@ void update(float delta) {
     }
 }
 
+/// <summary>receives commands from the remote server and processes them</summary>
 void recv() {
     int len = net->recv(buff, BUFF_SIZE);
     int used;
@@ -237,6 +260,8 @@ void recv() {
     }
 }
 
+/// <summary>updates the game state on the waiting room</summary>
+/// <param name="delta">the time passed from the last frame (in seconds)</param>
 void updateWaitRoom(float delta) {
     time += delta;
     if (time > game_info->wait_time && numEnemies == 0) {
@@ -248,6 +273,8 @@ void updateWaitRoom(float delta) {
     }
 }
 
+/// <summary>updates the game state on the game screen</summary>
+/// <param name="delta">the time passed from the last frame (in seconds)</param>
 void updateGame(float delta) {
     if (!gameOver) {
         time += delta;
@@ -309,31 +336,38 @@ void updateGame(float delta) {
     }
 }
 
+/// <summary>draws the game screen</summary>
 void draw() {
     glClearColor(0.25f, 0.25f, 0.25f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (gameStarted) {
         drawGame();
     } else {
-        glColor3f(1.0, 1.0, 1.0);
-        drawString("WAITING ROOM", 0, 25);
-        glColor3f(0.7, 0.7, 0.7);
-        drawString(numPlayersString, 0, 50);
-        color_t *col = snake->getColor();
-        glColor3f(col->r, col->g, col->b);
-        glRectd(5, 58, 10, 63);
-        drawString(snake->getName(), 15, 65);
-        for (int i = 0; i < numEnemies; i++) {
-            int y = 80 + 13*i;
-            col = enemies[i]->getColor();
-            glColor3f(col->r, col->g, col->b);
-            glRectd(5, y-7, 10, y-2);
-            drawString(enemies[i]->getName(), 15, y);
-        }
+        drawWaitingRoom();
     }
     //drawImage(tex, 100, 70, 96, 96);
 }
 
+/// <summary>draws the game on the waiting room</summary>
+void drawWaitingRoom() {
+    glColor3f(1.0, 1.0, 1.0);
+    drawString("WAITING ROOM", 0, 25);
+    glColor3f(0.7, 0.7, 0.7);
+    drawString(numPlayersString, 0, 50);
+    color_t *col = snake->getColor();
+    glColor3f(col->r, col->g, col->b);
+    glRectd(5, 58, 10, 63);
+    drawString(snake->getName(), 15, 65);
+    for (int i = 0; i < numEnemies; i++) {
+        int y = 80 + 13*i;
+        col = enemies[i]->getColor();
+        glColor3f(col->r, col->g, col->b);
+        glRectd(5, y-7, 10, y-2);
+        drawString(enemies[i]->getName(), 15, y);
+    }
+}
+
+/// <summary>draws the game on the game screen</summary>
 void drawGame() {
     if (!gameOver) {
         drawApples();
@@ -353,6 +387,7 @@ void drawGame() {
     }
 }
 
+/// <summary>draws the apples on the game screen</summary>
 void drawApples() {
     for (int i = 0; i < numApples; i++) {
         apples[i]->draw(0, 0);
@@ -362,6 +397,7 @@ void drawApples() {
     }
 }
 
+/// <summary>draws the grid of the game screen</summary>
 void drawGrid() {
     glLineWidth(1);
     // draw the grid
@@ -379,6 +415,7 @@ void drawGrid() {
     glEnd();
 }
 
+/// <summary>takes care of the player's keyboard input</summary>
 void input(GLFWwindow* window, int key, int scancode, int action, int mods) {
     if (action != GLFW_PRESS)
         return;
@@ -401,6 +438,7 @@ void input(GLFWwindow* window, int key, int scancode, int action, int mods) {
     }
 }
 
+/// <summary>adds the specified enemy to the game</summary>
 void addEnemy(char *name, int nameSize, int x, int y, char index) {
     if (numEnemies >= MAX_ENEMIES)
         return;
@@ -413,6 +451,9 @@ void addEnemy(char *name, int nameSize, int x, int y, char index) {
     numPlayersString[NUM_OF_PLAYERS_INDEX]++;
 }
 
+/// <summary>updates the player's data</summary>
+/// <param name="data">the player's binary data</param>
+/// <param name="isEnemy">true iff the player is an enemy</param>
 int addPlayer(char *data, bool isEnemy) {
     char index = data[0];
     int nameLen = data[1];
@@ -428,6 +469,7 @@ int addPlayer(char *data, bool isEnemy) {
     return 4+nameLen;
 }
 
+/// <returns>the snake by it's index</returns>
 Snake *getSnakeByIndex(char index) {
     if (snake->getIndex() == index) {
         return snake;
@@ -440,6 +482,7 @@ Snake *getSnakeByIndex(char index) {
     return NULL;
 }
 
+/// <summary>makes particles out of the given snake</summary>
 void makeSparkles(Snake *s) {
     for (int i = 0; i < s->getLength(); i++) {
         int x = s->getX()[i];
@@ -450,6 +493,7 @@ void makeSparkles(Snake *s) {
     }
 }
 
+/// <returns>a specific particle by it's origin snake and particle index</returns>
 Apple *getSparkleByInfo(char snake, unsigned char ind) {
     int i;
     for (i = 0; i < currSparkles; i++) {
@@ -460,6 +504,7 @@ Apple *getSparkleByInfo(char snake, unsigned char ind) {
     return NULL;
 }
 
+/// <summary>removes a specific particle by it's origin snake and particle index</summary>
 void removeSparkleByInfo(char snake, unsigned char ind) {
     int i;
     for (i = 0; i < currSparkles; i++) {
@@ -474,7 +519,7 @@ void removeSparkleByInfo(char snake, unsigned char ind) {
     currSparkles--;
 }
 
-/** returns whether the operation has been completed */
+/// <returns>whether the operation has been completed</returns>
 bool removeSnakeByIndex(char index) {
     if (snake->getIndex() == index) {
         return false;
