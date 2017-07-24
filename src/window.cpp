@@ -17,7 +17,7 @@ int init(const char *title) {
     glutInit(&argc, argv);
     glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
     // create the window
-    window = glfwCreateWindow(WIDTH, HEIGHT, "Hello World", NULL, NULL);
+    window = glfwCreateWindow(WIDTH, HEIGHT, title, NULL, NULL);
     if (!window) {
         glfwTerminate();
         return 0;

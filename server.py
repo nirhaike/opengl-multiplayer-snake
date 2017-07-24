@@ -80,7 +80,21 @@ class GameServer(object):
         # start the game
         self.broadcast_message("\x03")
         self.debug("Game started!")
+        try:
+            while self.running:
+                # check if there are more than 1 players
+                if len([player for player in self.players if player.is_alive()]) < 2:
+                    # server shutdown
+                    self.broadcast_message("\x02")
+                    self.running = False
+                # sleep (don't waste CPU)
+                time.sleep(1)
+        except:
+            traceback.print_exc()
+            for player in list(self.players):
+                self.remove_player(player)
 
+            running = False
 
     def wait_room(self):
         """ This function waits for players to join the server """
@@ -150,9 +164,11 @@ class GameServer(object):
         """
             This function removes a player from the game.
         """
+        sender = player
         if not keep_watching:
             # try to close the player's socket
             player.sock.close()
+            sender = None
         # remove the player
         try:
             self.lock.acquire()
@@ -161,7 +177,7 @@ class GameServer(object):
         except:
             return
         # tell other players that the player has left
-        server.broadcast_message("\x00" + chr(player.get_index()))
+        server.broadcast_message("\x00" + chr(player.get_index()), sender=sender)
         # add the player if he keeps watching the game
         if keep_watching:
             # add the player
@@ -239,6 +255,7 @@ class Player(object):
         self.name = name
         self.x = x
         self.y = y
+        self.alive = True
         self.sock = sock
         self.sock.settimeout(0.5)
 
@@ -254,6 +271,12 @@ class Player(object):
         # add the x and y coordinates
         data += chr(self.x) + chr(self.y)
         return data
+
+    def faint(self):
+        self.alive = False
+
+    def is_alive(self):
+        return self.alive
 
     def get_x(self):
         return self.x
@@ -312,6 +335,7 @@ def player_handler(server, player):
             # move the apple
             server.move_apple(ind)
         elif command == 0x03: # defeated
+            player.faint()
             server.remove_player(player, keep_watching=True)
             return
         elif command == 0x04: # eating sparkle
